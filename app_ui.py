@@ -103,9 +103,10 @@ class TrackRow(ctk.CTkFrame):
         )
         self.btn_del.grid(row=0, column=3, padx=(2, 8), pady=3, sticky="e")
 
-        # Bind clicks
+        # Bind clicks - single click now plays the track (as requested)
         for w in (self, self.lbl_num, self.lbl_name, self.lbl_dur):
-            w.bind("<Button-1>", self._on_click)
+            w.bind("<Button-1>", self._on_double)  # single click to play
+            # Double click also plays (for users used to it)
             w.bind("<Double-Button-1>", self._on_double)
 
         # Bind hover to all parts of the row so hover works over labels and delete button too
@@ -935,20 +936,6 @@ class MolPlayerApp(ctk.CTk):
         popup.overrideredirect(True)  # borderless dropdown look
         popup.configure(fg_color=BG_PANEL)
 
-        # Width approx sum of "Случайно" + "Источники плейлиста" buttons
-        # Position directly under the sources button, shifted left to cover both buttons' area
-        try:
-            btn = self.btn_sources
-            random_btn = getattr(self, 'btn_random', None)
-            rw = random_btn.winfo_width() if random_btn else 140
-            sw = btn.winfo_width() if btn else 170
-            popup_w = rw + sw + 10
-            popup_x = btn.winfo_rootx() - rw   # align to span random + sources horizontally
-            popup_y = btn.winfo_rooty() + btn.winfo_height()
-            popup.geometry(f"{popup_w}x280+{popup_x}+{popup_y}")
-        except Exception:
-            popup.geometry("320x280")
-
         self._sources_popup = popup
 
         main_frame = ctk.CTkFrame(popup, fg_color=BG_PANEL)
@@ -981,6 +968,22 @@ class MolPlayerApp(ctk.CTk):
         else:
             ctk.CTkLabel(main_frame, text="Нет добавленных папок",
                          text_color=TEXT_MUTED).pack(pady=6)
+
+        # Now that content is built, calculate dynamic height to fit exactly the content
+        popup.update_idletasks()
+        req_height = main_frame.winfo_reqheight() + 8  # small padding
+        # Width approx sum of "Случайно" + "Источники плейлиста" buttons
+        try:
+            btn = self.btn_sources
+            random_btn = getattr(self, 'btn_random', None)
+            rw = random_btn.winfo_width() if random_btn else 140
+            sw = btn.winfo_width() if btn else 170
+            popup_w = rw + sw + 10
+            popup_x = btn.winfo_rootx() - rw   # align to span random + sources horizontally
+            popup_y = btn.winfo_rooty() + btn.winfo_height()
+            popup.geometry(f"{popup_w}x{req_height}+{popup_x}+{popup_y}")
+        except Exception:
+            popup.geometry(f"320x{req_height}")
 
     def _menu_add_folder(self, popup):
         popup.destroy()
