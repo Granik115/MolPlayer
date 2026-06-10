@@ -254,3 +254,29 @@ class PlaylistManager:
         pl.tracks.insert(to_idx, track)
         self.save()
         return True
+
+    # --- App state persistence (last playlist, track, volume, mode) ---
+    def save_app_state(self, last_playlist_name: Optional[str] = None,
+                       last_track_path: Optional[str] = None,
+                       volume: float = 0.7,
+                       play_mode: Optional[str] = None):
+        data = {
+            "last_playlist_name": last_playlist_name,
+            "last_track_path": last_track_path,
+            "volume": max(0.0, min(1.0, volume)),
+            "play_mode": play_mode,  # "sequential" or "random"
+        }
+        try:
+            state_file = get_app_data_dir() / "state.json"
+            state_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            print(f"[PlaylistManager] save_app_state error: {e}")
+
+    def load_app_state(self) -> dict:
+        state_file = get_app_data_dir() / "state.json"
+        if not state_file.exists():
+            return {}
+        try:
+            return json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            return {}

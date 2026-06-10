@@ -58,7 +58,7 @@ start "" MolPlayer.exe
 "@ | Out-File -Encoding ASCII "dist/MolPlayer/MolPlayer.bat"
 
     # Create a clean zip for easy transfer between computers
-    $version = "0.2"   # bump manually when releasing
+    $version = "0.3"   # bump manually when releasing (match APP_VERSION in constants)
     $zipName = "MolPlayer-v$version-portable.zip"
     $zipPath = "releases\$zipName"
 
@@ -69,6 +69,35 @@ start "" MolPlayer.exe
 
     # Zip the entire MolPlayer folder (this is what you send to others)
     Compress-Archive -Path "dist/MolPlayer" -DestinationPath $zipPath -Force
+
+    # Also create a stable name for auto-updater
+    $stableZip = "releases\MolPlayer-portable.zip"
+    Copy-Item $zipPath $stableZip -Force
+
+    # === Try to build Windows installer (Inno Setup) if available ===
+    $isccPaths = @(
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles}\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles(x86)}\Inno Setup 5\ISCC.exe",
+        "${env:ProgramFiles}\Inno Setup 5\ISCC.exe"
+    )
+
+    $iscc = $isccPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+    if ($iscc) {
+        Write-Host "Inno Setup found at $iscc - building installer..." -ForegroundColor Green
+        $issFile = "installer\MolPlayer.iss"
+        if (Test-Path $issFile) {
+            & $iscc $issFile "/DMyAppVersion=$version" | Out-Null
+            $setupExe = "releases\MolPlayer-v$version-setup.exe"
+            if (Test-Path $setupExe) {
+                Write-Host "Installer created: $setupExe" -ForegroundColor Green
+            }
+        }
+    } else {
+        Write-Host "Inno Setup not found. To build the .exe installer, install Inno Setup and run build again." -ForegroundColor Yellow
+        Write-Host "Download: https://jrsoftware.org/isinfo.php" -ForegroundColor Yellow
+    }
 
     Write-Host "`n=== PACKAGE CREATED ===" -ForegroundColor Cyan
     Write-Host "Ready to distribute: $zipPath" -ForegroundColor Green

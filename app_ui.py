@@ -16,6 +16,16 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox
 import pygame  # only for init check if needed
 
+import urllib.request
+import json as _json
+import zipfile
+import tempfile
+import shutil
+import subprocess
+import sys
+import os
+import threading
+
 # Local
 from constants import (
     BG_DARK, BG_SIDEBAR, BG_PANEL, BG_TRACK, BG_TRACK_HOVER, BG_TRACK_SELECTED,
@@ -288,9 +298,8 @@ class MolPlayerApp(ctk.CTk):
         self._refresh_playlists_list()
         self._start_ui_poller()
 
-        # Try to restore last open playlist if any
-        if self.manager.playlists:
-            self._open_playlist(self.manager.playlists[0].name)
+        # Restore previous session (playlist, track, volume, mode)
+        self._restore_last_session()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -337,6 +346,19 @@ class MolPlayerApp(ctk.CTk):
         )
         self.btn_del_pl.pack(fill="x")
 
+        # Version + updates
+        ver_frame = ctk.CTkFrame(bot, fg_color="transparent")
+        ver_frame.pack(fill="x", pady=(6, 0))
+        ctk.CTkLabel(ver_frame, text=f"v{APP_VERSION}", text_color=TEXT_MUTED,
+                     font=ctk.CTkFont(size=10)).pack(side="left")
+        self.btn_check_updates = ctk.CTkButton(
+            ver_frame, text="Обновления", width=90, height=24,
+            fg_color=BTN_BG, hover_color=BTN_HOVER,
+            text_color=TEXT_PRIMARY, font=ctk.CTkFont(size=10),
+            command=self._check_for_updates
+        )
+        self.btn_check_updates.pack(side="right")
+
         # RIGHT: Main content
         self.content = ctk.CTkFrame(self, fg_color=BG_OVERLAY, corner_radius=0)
         self.content.grid(row=0, column=1, sticky="nsew")
@@ -358,35 +380,40 @@ class MolPlayerApp(ctk.CTk):
         actions = ctk.CTkFrame(self.top_bar, fg_color="transparent")
         actions.grid(row=0, column=1, padx=12, pady=6, sticky="e")
 
+        # All top-right action buttons now use the same muted style as "Очистить"
+        button_style = {
+            "fg_color": BTN_BG,
+            "hover_color": BTN_HOVER,
+            "text_color": TEXT_PRIMARY,
+        }
+
         self.btn_play = ctk.CTkButton(
             actions, text="▶ Воспроизвести", width=140, height=32,
-            fg_color=BTN_PRIMARY, hover_color=BTN_PRIMARY_HOVER,
-            text_color="white", font=ctk.CTkFont(weight="bold"),
-            command=lambda: self._play_playlist(start_random=False)
+            font=ctk.CTkFont(weight="bold"),
+            command=lambda: self._play_playlist(start_random=False),
+            **button_style
         )
         self.btn_play.pack(side="left", padx=3)
 
         self.btn_random = ctk.CTkButton(
             actions, text="🎲 Случайно", width=110, height=32,
-            fg_color=ACCENT_CYAN, hover_color=ACCENT_CYAN_HOVER,
-            text_color="black", font=ctk.CTkFont(weight="bold"),
-            command=lambda: self._play_playlist(start_random=True)
+            font=ctk.CTkFont(weight="bold"),
+            command=lambda: self._play_playlist(start_random=True),
+            **button_style
         )
         self.btn_random.pack(side="left", padx=3)
 
         self.btn_add_folder = ctk.CTkButton(
             actions, text="📁 Добавить папку", width=130, height=32,
-            fg_color=BTN_PRIMARY, hover_color=BTN_PRIMARY_HOVER,
-            text_color="white",
-            command=self._add_folder_to_current
+            command=self._add_folder_to_current,
+            **button_style
         )
         self.btn_add_folder.pack(side="left", padx=3)
 
         self.btn_clear = ctk.CTkButton(
             actions, text="🗑 Очистить", width=90, height=32,
-            fg_color=BTN_BG, hover_color=BTN_HOVER,
-            text_color=TEXT_PRIMARY,
-            command=self._clear_current_playlist
+            command=self._clear_current_playlist,
+            **button_style
         )
         self.btn_clear.pack(side="left", padx=3)
 
@@ -799,6 +826,19 @@ class MolPlayerApp(ctk.CTk):
                 self.after_cancel(self._ui_update_after)
             except Exception:
                 pass
+
+        # Persist session so next launch restores playlist, track, volume and mode
+        try:
+            last_track_path = self.current_track.path if self.current_track else None
+            self.manager.save_app_state(
+                last_playlist_name=self.current_playlist_name,
+                last_track_path=last_track_path,
+                volume=self.audio.get_volume(),
+                play_mode=self._play_mode,
+            )
+        except Exception:
+            pass
+
         self.audio.cleanup()
         self.manager.save()
         self.destroy()
@@ -817,6 +857,183 @@ class MolPlayerApp(ctk.CTk):
             pos = self.audio.get_pos() + delta
             self._seek_to(max(0, pos))
 
+    def _restore_last_session(self):
+        """Restore last used playlist, track, volume and play mode from previous run."""
+        state = self.manager.load_app_state()
+        if not state:
+            # default: open first playlist
+            if self.manager.playlists:
+                self._open_playlist(self.manager.playlists[0].name)
+            return
+
+        last_pl = state.get("last_playlist_name")
+        last_track_path = state.get("last_track_path")
+        vol = float(state.get("volume", 0.7))
+        mode = state.get("play_mode")
+
+        # Apply volume immediately
+        self.audio.set_volume(max(0.0, min(1.0, vol)))
+        if hasattr(self, "now_panel") and hasattr(self.now_panel, "vol_var"):
+            self.now_panel.vol_var.set(self.audio.get_volume())
+
+        if last_pl:
+            pl = self.manager.get_playlist(last_pl)
+            if pl:
+                self._open_playlist(last_pl)
+
+                # Try to restore the exact last track (highlight + load paused)
+                if last_track_path:
+                    for i, t in enumerate(pl.tracks):
+                        if t.path == last_track_path:
+                            self.current_track_idx = i
+                            self.current_track = t
+                            if self.audio.load(t.path):
+                                self.audio.set_length(getattr(t, "duration", 0.0) or 0.0)
+                            self._highlight_current_row()
+                            self._show_or_update_now_panel()
+                            break
+
+        self._play_mode = mode
+
+    # ---------------- UPDATES ----------------
+    def _check_for_updates(self, silent: bool = False):
+        """Check GitHub Releases for a newer version and offer in-app update.
+        Handles case when no releases are published yet (404 on /latest).
+        """
+        try:
+            api_url = "https://api.github.com/repos/Granik115/MolPlayer/releases/latest"
+            req = urllib.request.Request(api_url, headers={"User-Agent": "MolPlayer-Updater/0.3"})
+
+            try:
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    data = _json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as http_err:
+                if http_err.code == 404:
+                    # No releases published yet on GitHub
+                    if not silent:
+                        messagebox.showinfo(
+                            "Обновления",
+                            "На GitHub пока нет опубликованных релизов.\n\n"
+                            "Чтобы авто-обновления заработали, создай хотя бы один Release "
+                            "и загрузи в него MolPlayer-portable.zip (или любой .zip)."
+                        )
+                    return
+                raise
+
+            latest_tag = data.get("tag_name", "v0.0.0")
+
+            # Find best asset: prefer "portable", fallback to any .zip
+            asset_url = None
+            assets = data.get("assets", [])
+            for asset in assets:
+                name = asset.get("name", "")
+                if "portable" in name.lower() and name.endswith(".zip"):
+                    asset_url = asset.get("browser_download_url")
+                    break
+            if not asset_url:
+                for asset in assets:
+                    if asset.get("name", "").endswith(".zip"):
+                        asset_url = asset.get("browser_download_url")
+                        break
+
+            if not asset_url:
+                if not silent:
+                    messagebox.showinfo("Обновления", "В релизе не найдено подходящего архива для обновления.")
+                return
+
+            def ver_tuple(v: str):
+                v = v.lstrip("vV")
+                try:
+                    return tuple(int(x) for x in v.split(".")[:3])
+                except Exception:
+                    return (0, 0, 0)
+
+            if ver_tuple(latest_tag) <= ver_tuple(APP_VERSION):
+                if not silent:
+                    messagebox.showinfo("Обновления", f"У вас уже последняя версия ({APP_VERSION}).")
+                return
+
+            if messagebox.askyesno(
+                "Доступно обновление",
+                f"Доступна новая версия {latest_tag}.\n\n"
+                "Загрузить и установить обновление сейчас?\n"
+                "Приложение автоматически перезапустится после обновления."
+            ):
+                self._perform_self_update(asset_url, latest_tag)
+
+        except Exception as e:
+            if not silent:
+                messagebox.showerror("Ошибка обновления", f"Не удалось проверить обновления:\n{e}")
+
+    def _perform_self_update(self, download_url: str, new_version_tag: str):
+        """Download the zip in background, prepare updater .bat and restart the app."""
+        progress_win = ctk.CTkToplevel(self)
+        progress_win.title("Обновление MolPlayer")
+        progress_win.geometry("340x130")
+        progress_win.resizable(False, False)
+        ctk.CTkLabel(progress_win, text=f"Загрузка {new_version_tag}...").pack(pady=(12, 4))
+        pbar = ctk.CTkProgressBar(progress_win, width=280)
+        pbar.pack(pady=4)
+        pbar.set(0.0)
+        lbl = ctk.CTkLabel(progress_win, text="0%")
+        lbl.pack()
+
+        def worker():
+            try:
+                tmp_zip = tempfile.NamedTemporaryFile(delete=False, suffix=".zip").name
+                def hook(blocknum, blocksize, totalsize):
+                    if totalsize > 0:
+                        frac = min(blocknum * blocksize / totalsize, 1.0)
+                        self.after(0, lambda f=frac: (pbar.set(f), lbl.configure(text=f"{int(f*100)}%")))
+                urllib.request.urlretrieve(download_url, tmp_zip, reporthook=hook)
+
+                extract_dir = tempfile.mkdtemp(prefix="mol_upd_")
+                with zipfile.ZipFile(tmp_zip, "r") as zf:
+                    zf.extractall(extract_dir)
+
+                # zip usually contains MolPlayer/ subfolder
+                src_dir = os.path.join(extract_dir, "MolPlayer")
+                if not os.path.isdir(src_dir):
+                    src_dir = extract_dir
+
+                # Determine current application directory
+                if getattr(sys, "frozen", False):
+                    app_dir = os.path.dirname(sys.executable)
+                else:
+                    app_dir = os.path.dirname(os.path.abspath(__file__))
+
+                # Create a self-deleting updater batch
+                bat = os.path.join(tempfile.gettempdir(), "molplayer_updater.bat")
+                bat_src = src_dir.replace("\\", "\\\\")
+                app_src = app_dir.replace("\\", "\\\\")
+                bat_content = f"""@echo off
+chcp 65001 >nul
+timeout /t 2 /nobreak >nul
+echo Применение обновления MolPlayer...
+robocopy "{bat_src}" "{app_src}" /E /R:3 /W:1 /NFL /NDL /NJH /NJS
+start "" "{app_src}\\MolPlayer.exe"
+rd /s /q "{extract_dir}" >nul 2>&1
+del "%~f0" >nul 2>&1
+"""
+                with open(bat, "w", encoding="cp866") as f:
+                    f.write(bat_content)
+
+                self.after(0, progress_win.destroy)
+                self.after(150, lambda: self._launch_updater_and_exit(bat))
+            except Exception as ex:
+                self.after(0, lambda: (progress_win.destroy(),
+                                       messagebox.showerror("Ошибка обновления", f"Не удалось установить обновление:\n{ex}")))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _launch_updater_and_exit(self, bat_path: str):
+        try:
+            # Launch detached
+            CREATE_NO_WINDOW = 0x08000000
+            subprocess.Popen(["cmd", "/c", bat_path], shell=True, creationflags=CREATE_NO_WINDOW)
+        except Exception:
+            subprocess.Popen(bat_path, shell=True)
+        self.destroy()
 
 def main():
     # Ensure pygame mixer is happy on some systems
