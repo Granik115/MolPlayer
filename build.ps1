@@ -26,7 +26,7 @@ if (-not (Test-Path $icon)) {
 Write-Host "Running PyInstaller (onedir + windowed + noupx)..." -ForegroundColor Green
 
 # --noupx is important: UPX-compressed executables are heavily flagged by antiviruses
-$cmd = "pyinstaller --clean --noconfirm --name MolPlayer --onedir --windowed --noupx $iconArg main.py"
+$cmd = "pyinstaller --clean --noconfirm --name MolPlayer --onedir --windowed --noupx --version-file=version_info.txt $iconArg main.py"
 Write-Host $cmd
 Invoke-Expression $cmd
 
