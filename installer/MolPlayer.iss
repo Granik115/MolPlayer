@@ -4,7 +4,7 @@
 
 #define MyAppName "MolPlayer"
 #ifndef MyAppVersion
-#define MyAppVersion "0.9.0"
+#define MyAppVersion "0.9.1"
 #endif
 #define MyAppPublisher "Granik115"
 #define MyAppURL "https://github.com/Granik115/MolPlayer"

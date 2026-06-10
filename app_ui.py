@@ -67,6 +67,7 @@ class TrackRow(ctk.CTkFrame):
         self.on_select = on_select
         self._selected = False
         self._playing = False
+        self._hovered = False
 
         self.grid_columnconfigure(1, weight=1)
 
@@ -107,16 +108,18 @@ class TrackRow(ctk.CTkFrame):
             w.bind("<Button-1>", self._on_click)
             w.bind("<Double-Button-1>", self._on_double)
 
-        self.bind("<Enter>", self._on_enter)
-        self.bind("<Leave>", self._on_leave)
+        # Bind hover to all parts of the row so hover works over labels and delete button too
+        for w in (self, self.lbl_num, self.lbl_name, self.lbl_dur, self.btn_del):
+            w.bind("<Enter>", self._on_enter)
+            w.bind("<Leave>", self._on_leave)
 
     def _on_enter(self, _=None):
-        if not self._selected:
-            self.configure(fg_color=BG_TRACK_HOVER)
+        self._hovered = True
+        self._apply_color()
 
     def _on_leave(self, _=None):
-        if not self._selected:
-            self.configure(fg_color=BG_TRACK)
+        self._hovered = False
+        self._apply_color()
 
     def set_selected(self, sel: bool):
         self._selected = sel
@@ -128,10 +131,13 @@ class TrackRow(ctk.CTkFrame):
 
     def _apply_color(self):
         if getattr(self, "_playing", False):
-            self.configure(fg_color=DEPTH_BLUE)  # deep blue for currently playing row (from reference)
+            self.configure(fg_color=DEPTH_BLUE)
             self.lbl_num.configure(text_color=ACCENT_GLOW)
         elif self._selected:
             self.configure(fg_color=BG_TRACK_SELECTED)
+            self.lbl_num.configure(text_color=TEXT_MUTED)
+        elif self._hovered:
+            self.configure(fg_color=BG_TRACK_HOVER)
             self.lbl_num.configure(text_color=TEXT_MUTED)
         else:
             self.configure(fg_color=BG_TRACK)
@@ -913,67 +919,77 @@ class MolPlayerApp(ctk.CTk):
 
         self._play_mode = mode
 
-    # ---------------- SOURCES MENU ----------------
+    # ---------------- SOURCES MENU (dropdown from button) ----------------
     def _show_sources_menu(self):
         pl = self.manager.get_current()
         if not pl:
             return
 
+        # Toggle: if already open, close it
+        if hasattr(self, '_sources_popup') and self._sources_popup and self._sources_popup.winfo_exists():
+            self._sources_popup.destroy()
+            self._sources_popup = None
+            return
+
         popup = ctk.CTkToplevel(self)
-        popup.title("Источники плейлиста")
-        popup.geometry("420x300")
-        popup.resizable(False, False)
+        popup.overrideredirect(True)  # borderless dropdown look
+        popup.configure(fg_color=BG_PANEL)
 
-        # Position below the button
+        # Width approx sum of "Случайно" + "Источники плейлиста" buttons
+        # Position directly under the sources button, shifted left to cover both buttons' area
         try:
-            x = self.btn_sources.winfo_rootx()
-            y = self.btn_sources.winfo_rooty() + self.btn_sources.winfo_height() + 4
-            popup.geometry(f"+{x}+{y}")
+            btn = self.btn_sources
+            random_btn = getattr(self, 'btn_random', None)
+            rw = random_btn.winfo_width() if random_btn else 140
+            sw = btn.winfo_width() if btn else 170
+            popup_w = rw + sw + 10
+            popup_x = btn.winfo_rootx() - rw   # align to span random + sources horizontally
+            popup_y = btn.winfo_rooty() + btn.winfo_height()
+            popup.geometry(f"{popup_w}x280+{popup_x}+{popup_y}")
         except Exception:
-            pass
+            popup.geometry("320x280")
 
-        popup.grab_set()
+        self._sources_popup = popup
 
         main_frame = ctk.CTkFrame(popup, fg_color=BG_PANEL)
-        main_frame.pack(fill="both", expand=True, padx=6, pady=6)
+        main_frame.pack(fill="both", expand=True, padx=4, pady=4)
 
         # Add folder at top
         add_btn = ctk.CTkButton(main_frame, text="📁 Добавить папку",
                                 command=lambda: self._menu_add_folder(popup))
-        add_btn.pack(fill="x", pady=(0, 6))
+        add_btn.pack(fill="x", pady=(0, 4))
 
         if pl.folders:
             for folder in pl.folders:
                 row = ctk.CTkFrame(main_frame, fg_color=BG_TRACK)
-                row.pack(fill="x", pady=2)
+                row.pack(fill="x", pady=1)
 
-                display = folder if len(folder) <= 55 else "..." + folder[-52:]
+                display = folder if len(folder) <= 50 else "..." + folder[-47:]
                 lbl = ctk.CTkLabel(row, text=display, anchor="w", text_color=TEXT_PRIMARY)
-                lbl.pack(side="left", fill="x", expand=True, padx=6, pady=3)
+                lbl.pack(side="left", fill="x", expand=True, padx=4, pady=2)
 
-                rem = ctk.CTkButton(row, text="✕", width=26, height=22,
+                rem = ctk.CTkButton(row, text="✕", width=22, height=20,
                                     fg_color=BTN_BG, hover_color=BTN_HOVER,
                                     command=lambda f=folder: self._menu_remove_folder(f, popup))
-                rem.pack(side="right", padx=4)
+                rem.pack(side="right", padx=3)
 
             # Delete all
             del_all = ctk.CTkButton(main_frame, text="🗑 Удалить все папки",
                                     fg_color="#3A2A2A", hover_color="#4A2A2A",
                                     command=lambda: self._menu_remove_all(popup))
-            del_all.pack(fill="x", pady=(6, 0))
+            del_all.pack(fill="x", pady=(4, 0))
         else:
             ctk.CTkLabel(main_frame, text="Нет добавленных папок",
-                         text_color=TEXT_MUTED).pack(pady=8)
-
-        close_btn = ctk.CTkButton(main_frame, text="Закрыть", command=popup.destroy)
-        close_btn.pack(fill="x", pady=(8, 0))
+                         text_color=TEXT_MUTED).pack(pady=6)
 
     def _menu_add_folder(self, popup):
         popup.destroy()
+        self._sources_popup = None
         self._add_folder_to_current()
 
     def _menu_remove_folder(self, folder, popup):
         popup.destroy()
+        self._sources_popup = None
         if self.current_playlist_name and self.manager.remove_folder(self.current_playlist_name, folder):
             self._refresh_tracks_list()
             pl = self.manager.get_current()
@@ -986,6 +1002,7 @@ class MolPlayerApp(ctk.CTk):
 
     def _menu_remove_all(self, popup):
         popup.destroy()
+        self._sources_popup = None
         pl = self.manager.get_current()
         if pl and pl.folders:
             pl.folders = []
