@@ -342,14 +342,18 @@ class MolPlayerApp(ctk.CTk):
 
         self.btn_new_pl = ctk.CTkButton(
             hdr, text="+", width=32, height=28,
-            fg_color=BTN_PRIMARY, hover_color=BTN_PRIMARY_HOVER,
-            text_color="white", font=ctk.CTkFont(size=16, weight="bold"),
+            fg_color=BTN_BG, hover_color=BTN_HOVER,
+            text_color=TEXT_PRIMARY, font=ctk.CTkFont(size=16, weight="bold"),
             command=self._create_new_playlist
         )
         self.btn_new_pl.pack(side="right")
 
         # Scrollable playlists
-        self.pl_scroll = ctk.CTkScrollableFrame(self.sidebar, fg_color=BG_SIDEBAR, label_text="")
+        self.pl_scroll = ctk.CTkScrollableFrame(
+            self.sidebar, fg_color=BG_SIDEBAR, label_text="",
+            scrollbar_button_color=ACCENT_FRAME,
+            scrollbar_button_hover_color=ACCENT_GLOW
+        )
         self.pl_scroll.pack(fill="both", expand=True, padx=6, pady=4)
 
         self.pl_buttons: List[ctk.CTkButton] = []
@@ -358,7 +362,7 @@ class MolPlayerApp(ctk.CTk):
         bot = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         bot.pack(fill="x", padx=8, pady=8)
         self.btn_del_pl = ctk.CTkButton(
-            bot, text="Удалить плейлист", fg_color="#3A2A2A", hover_color="#4A2A2A",
+            bot, text="Удалить плейлист", fg_color=BTN_BG, hover_color=BTN_HOVER,
             text_color=TEXT_PRIMARY, command=self._delete_current_playlist
         )
         self.btn_del_pl.pack(fill="x")
@@ -404,8 +408,10 @@ class MolPlayerApp(ctk.CTk):
             "text_color": TEXT_PRIMARY,
         }
 
+        # Equal width for all four top buttons (aligned to the largest)
+        BTN_WIDTH = 140
         self.btn_play = ctk.CTkButton(
-            actions, text="▶ Воспроизвести", width=140, height=32,
+            actions, text="▶ Воспроизвести", width=BTN_WIDTH, height=32,
             font=ctk.CTkFont(weight="bold"),
             command=lambda: self._play_playlist(start_random=False),
             **button_style
@@ -413,7 +419,7 @@ class MolPlayerApp(ctk.CTk):
         self.btn_play.pack(side="left", padx=3)
 
         self.btn_random = ctk.CTkButton(
-            actions, text="🎲 Случайно", width=110, height=32,
+            actions, text="🎲 Случайно", width=BTN_WIDTH, height=32,
             font=ctk.CTkFont(weight="bold"),
             command=lambda: self._play_playlist(start_random=True),
             **button_style
@@ -421,14 +427,14 @@ class MolPlayerApp(ctk.CTk):
         self.btn_random.pack(side="left", padx=3)
 
         self.btn_add_folder = ctk.CTkButton(
-            actions, text="📁 Добавить папку", width=130, height=32,
+            actions, text="📁 Добавить папку", width=BTN_WIDTH, height=32,
             command=self._add_folder_to_current,
             **button_style
         )
         self.btn_add_folder.pack(side="left", padx=3)
 
         self.btn_clear = ctk.CTkButton(
-            actions, text="🗑 Очистить", width=90, height=32,
+            actions, text="🗑 Очистить", width=BTN_WIDTH, height=32,
             command=self._clear_current_playlist,
             **button_style
         )
@@ -438,13 +444,26 @@ class MolPlayerApp(ctk.CTk):
         self.tracks_container = ctk.CTkFrame(self.content, fg_color=BG_PANEL)
         self.tracks_container.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
         self.tracks_container.grid_columnconfigure(0, weight=1)
-        self.tracks_container.grid_rowconfigure(0, weight=1)   # tracks list expands
-        self.tracks_container.grid_rowconfigure(1, weight=0)   # now playing bar fixed
+        self.tracks_container.grid_rowconfigure(0, weight=0)   # source folders list (small)
+        self.tracks_container.grid_rowconfigure(1, weight=1)   # tracks list expands
+        self.tracks_container.grid_rowconfigure(2, weight=0)   # now playing bar fixed
+
+        # Source folders section for the current playlist
+        self.folders_frame = ctk.CTkFrame(self.tracks_container, fg_color=BG_PANEL)
+        self.folders_frame.grid(row=0, column=0, sticky="ew", padx=4, pady=(0, 4))
+        ctk.CTkLabel(self.folders_frame, text="Папки-источники плейлиста:",
+                     text_color=TEXT_SECONDARY, font=ctk.CTkFont(size=11, weight="bold")
+                     ).pack(anchor="w", padx=4, pady=(2, 0))
+
+        self.folders_list_frame = ctk.CTkFrame(self.folders_frame, fg_color="transparent")
+        self.folders_list_frame.pack(fill="x", padx=4, pady=(0, 2))
 
         self.tracks_scroll = ctk.CTkScrollableFrame(
-            self.tracks_container, fg_color=BG_PANEL, label_text=""
+            self.tracks_container, fg_color=BG_PANEL, label_text="",
+            scrollbar_button_color=ACCENT_FRAME,
+            scrollbar_button_hover_color=ACCENT_GLOW
         )
-        self.tracks_scroll.grid(row=0, column=0, sticky="nsew")
+        self.tracks_scroll.grid(row=1, column=0, sticky="nsew")
 
         # Now playing bar - full width at the bottom of the right panel (tracks area)
         self.now_panel = NowPlayingPanel(
@@ -455,7 +474,7 @@ class MolPlayerApp(ctk.CTk):
             on_toggle=self._toggle_play,
             on_seek=self._seek_to
         )
-        self.now_panel.grid(row=1, column=0, sticky="ew", padx=4, pady=(2, 6))
+        self.now_panel.grid(row=2, column=0, sticky="ew", padx=4, pady=(2, 6))
 
         # Status bar at very bottom
         self.status = ctk.CTkLabel(
@@ -508,6 +527,7 @@ class MolPlayerApp(ctk.CTk):
         self.current_track = None
         self._refresh_playlists_list()
         self._refresh_tracks_list()
+        self._refresh_source_folders()
         self._hide_now_panel()
         if self.manager.playlists:
             self._open_playlist(self.manager.playlists[0].name)
@@ -525,6 +545,7 @@ class MolPlayerApp(ctk.CTk):
         self._refresh_playlists_list(select_name=name)
         self.lbl_pl_name.configure(text=name)
         self._refresh_tracks_list()
+        self._refresh_source_folders()
         self._hide_now_panel()
         self.status.configure(text=f"Открыт плейлист: {name} ({len(pl.tracks)} треков)")
 
@@ -561,6 +582,46 @@ class MolPlayerApp(ctk.CTk):
                 if row.index == self.current_track_idx:
                     row.set_playing(True)
                     break
+
+    def _refresh_source_folders(self):
+        """Refresh the list of source folders for the current playlist."""
+        for w in self.folders_list_frame.winfo_children():
+            w.destroy()
+
+        pl = self.manager.get_current()
+        if not pl or not pl.folders:
+            ctk.CTkLabel(self.folders_list_frame, text="Нет добавленных папок",
+                         text_color=TEXT_MUTED, font=ctk.CTkFont(size=10)).pack(anchor="w", padx=2)
+            return
+
+        for folder in pl.folders:
+            row = ctk.CTkFrame(self.folders_list_frame, fg_color=BG_TRACK, corner_radius=3)
+            # Shorten long paths for display
+            display = folder if len(folder) <= 60 else "..." + folder[-57:]
+            lbl = ctk.CTkLabel(row, text=display, text_color=TEXT_SECONDARY,
+                               font=ctk.CTkFont(size=10), anchor="w")
+            lbl.pack(side="left", fill="x", expand=True, padx=4, pady=2)
+
+            btn = ctk.CTkButton(row, text="✕", width=20, height=18,
+                                fg_color="transparent", hover_color="#3A2A2A",
+                                text_color=TEXT_MUTED, font=ctk.CTkFont(size=10),
+                                command=lambda f=folder: self._remove_source_folder(f))
+            btn.pack(side="right", padx=2, pady=1)
+
+            row.pack(fill="x", pady=1)
+
+    def _remove_source_folder(self, folder: str):
+        if not self.current_playlist_name:
+            return
+        if self.manager.remove_folder(self.current_playlist_name, folder):
+            self._refresh_tracks_list()
+            self._refresh_source_folders()
+            # If current track was from the removed folder, clear it
+            if self.current_track and str(Path(self.current_track.path).resolve()).startswith(str(Path(folder).resolve())):
+                self._stop_playback()
+                self.current_track = None
+                self.current_track_idx = None
+                self._hide_now_panel()
 
     def _select_track_row(self, row: TrackRow):
         if self._selected_row:
@@ -605,6 +666,7 @@ class MolPlayerApp(ctk.CTk):
             self.current_track = None
             self.current_track_idx = None
             self._refresh_tracks_list()
+            self._refresh_source_folders()
             self.play_order = []
 
     def _add_folder_to_current(self):
@@ -617,6 +679,7 @@ class MolPlayerApp(ctk.CTk):
 
         added, skipped, examples = self.manager.add_folder(folder, self.manager.get_current())
         self._refresh_tracks_list()
+        self._refresh_source_folders()
         # update play_order
         pl = self.manager.get_current()
         self.play_order = list(range(len(pl.tracks)))

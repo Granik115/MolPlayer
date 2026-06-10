@@ -48,18 +48,20 @@ class Track:
 class Playlist:
     name: str
     tracks: List[Track] = field(default_factory=list)
-    # We don't store order separately; the list is the order.
+    folders: List[str] = field(default_factory=list)  # source folders added to this playlist
 
     def to_dict(self) -> dict:
         return {
             "name": self.name,
             "tracks": [asdict(t) for t in self.tracks],
+            "folders": self.folders,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> "Playlist":
         tracks = [Track(**t) for t in d.get("tracks", [])]
-        return cls(name=d.get("name", "Untitled"), tracks=tracks)
+        folders = d.get("folders", [])
+        return cls(name=d.get("name", "Untitled"), tracks=tracks, folders=folders)
 
 
 class PlaylistManager:
@@ -139,6 +141,7 @@ class PlaylistManager:
     def add_folder(self, folder: str, playlist: Optional[Playlist] = None) -> Tuple[int, int, List[str]]:
         """
         Scan folder (non-recursive top level) for audio files.
+        Records the folder as a source for the playlist.
         Returns (added_count, skipped_count, skipped_examples)
         Silently ignores files with bad extension or that fail to be read by mutagen.
         """
@@ -146,6 +149,10 @@ class PlaylistManager:
             playlist = self._current
         if playlist is None:
             return 0, 0, []
+
+        folder_path = str(Path(folder).resolve())
+        if folder_path not in playlist.folders:
+            playlist.folders.append(folder_path)
 
         p = Path(folder)
         if not p.is_dir():
@@ -254,6 +261,33 @@ class PlaylistManager:
         pl.tracks.insert(to_idx, track)
         self.save()
         return True
+
+    def remove_folder(self, playlist_name: str, folder: str) -> bool:
+        """Remove a source folder from the playlist and clean tracks originating from it."""
+        pl = self.get_playlist(playlist_name)
+        if not pl:
+            return False
+
+        folder_path = str(Path(folder).resolve())
+        removed = False
+        if folder_path in pl.folders:
+            pl.folders.remove(folder_path)
+            removed = True
+
+        # Remove tracks whose paths are under this folder
+        before = len(pl.tracks)
+        pl.tracks = [
+            t for t in pl.tracks
+            if not str(Path(t.path).resolve()).startswith(folder_path + os.sep)
+            and str(Path(t.path).resolve()) != folder_path
+        ]
+        if len(pl.tracks) < before:
+            removed = True
+
+        if removed:
+            self.save()
+            return True
+        return False
 
     # --- App state persistence (last playlist, track, volume, mode) ---
     def save_app_state(self, last_playlist_name: Optional[str] = None,

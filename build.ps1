@@ -63,7 +63,7 @@ start "" MolPlayer.exe
 "@ | Out-File -Encoding ASCII "dist/MolPlayer/MolPlayer.bat"
 
     # Create a clean zip for easy transfer between computers
-    $version = "0.7"   # bump manually when releasing (match APP_VERSION in constants)
+    $version = "0.8"   # bump manually when releasing (match APP_VERSION in constants)
     $zipName = "MolPlayer-v$version-portable.zip"
     $zipPath = "releases\$zipName"
 
@@ -105,8 +105,13 @@ start "" MolPlayer.exe
     }
 
     Write-Host "`n=== PACKAGE CREATED ===" -ForegroundColor Cyan
-    Write-Host "Ready to distribute: $zipPath" -ForegroundColor Green
-    Write-Host "Just send this zip to another PC, extract anywhere, run MolPlayer.exe" -ForegroundColor Yellow
+    Write-Host "Versioned zip (for GitHub Release): $zipPath" -ForegroundColor Green
+    Write-Host "Stable zip (for auto-updater): $stableZip" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "IMPORTANT:" -ForegroundColor Yellow
+    Write-Host "1. The releases/ folder is LOCAL only (it is in .gitignore)." -ForegroundColor Yellow
+    Write-Host "2. After git pull + this build, use the NEW v$version files above when creating a GitHub Release." -ForegroundColor Yellow
+    Write-Host "3. Upload both the versioned zip and MolPlayer-portable.zip to the release." -ForegroundColor Yellow
 } else {
     Write-Host "Build may have failed. Check above output." -ForegroundColor Red
 }
