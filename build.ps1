@@ -58,7 +58,7 @@ start "" MolPlayer.exe
 "@ | Out-File -Encoding ASCII "dist/MolPlayer/MolPlayer.bat"
 
     # Create a clean zip for easy transfer between computers
-    $version = "0.3"   # bump manually when releasing (match APP_VERSION in constants)
+    $version = "0.4"   # bump manually when releasing (match APP_VERSION in constants)
     $zipName = "MolPlayer-v$version-portable.zip"
     $zipPath = "releases\$zipName"
 

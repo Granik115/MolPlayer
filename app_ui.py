@@ -164,17 +164,19 @@ class NowPlayingPanel(ctk.CTkFrame):
 
         self.current_track: Optional[Track] = None
 
-        # Layout
-        self.grid_columnconfigure(1, weight=1)
+        # Layout - 3 columns for nice centering of transport controls
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=0)   # centered transport controls
+        self.grid_columnconfigure(2, weight=1)
 
-        # Top row: title + close
+        # Top row: title
         self.lbl_title = ctk.CTkLabel(
             self, text="Нет воспроизведения", anchor="w",
             text_color=TEXT_PRIMARY, font=ctk.CTkFont(size=12, weight="bold")
         )
-        self.lbl_title.grid(row=0, column=0, columnspan=4, padx=10, pady=(6, 2), sticky="ew")
+        self.lbl_title.grid(row=0, column=0, columnspan=3, padx=10, pady=(6, 2), sticky="ew")
 
-        # Progress row
+        # Progress row - full width
         self.progress_var = ctk.DoubleVar(value=0.0)
         self.progress = ctk.CTkSlider(
             self, from_=0, to=1, variable=self.progress_var,
@@ -182,42 +184,42 @@ class NowPlayingPanel(ctk.CTkFrame):
             progress_color=ACCENT_GLOW, fg_color=PROGRESS_BG,
             height=8, command=self._on_seek_slider
         )
-        self.progress.grid(row=1, column=0, columnspan=4, padx=10, pady=(2, 4), sticky="ew")
+        self.progress.grid(row=1, column=0, columnspan=3, padx=10, pady=(2, 4), sticky="ew")
 
-        # Time labels
+        # Bottom control row
+        # Left: time
         self.lbl_time = ctk.CTkLabel(self, text="0:00 / 0:00", text_color=TEXT_MUTED, font=ctk.CTkFont(size=10))
         self.lbl_time.grid(row=2, column=0, padx=10, pady=(0, 6), sticky="w")
 
-        # Controls
-        ctrl_frame = ctk.CTkFrame(self, fg_color="transparent")
-        ctrl_frame.grid(row=2, column=1, columnspan=3, padx=4, pady=(0, 6), sticky="e")
+        # Center: transport controls (prev / play-pause / next) - this is the main request
+        transport_frame = ctk.CTkFrame(self, fg_color="transparent")
+        transport_frame.grid(row=2, column=1, padx=4, pady=(0, 6), sticky="")
 
-        # Buttons
-        self.btn_prev = ctk.CTkButton(ctrl_frame, text="⏮", width=32, height=28,
+        self.btn_prev = ctk.CTkButton(transport_frame, text="⏮", width=32, height=28,
                                       fg_color=BTN_BG, hover_color=BTN_HOVER,
                                       command=self.on_prev)
         self.btn_prev.pack(side="left", padx=2)
 
-        self.btn_toggle = ctk.CTkButton(ctrl_frame, text="▶", width=36, height=28,
+        self.btn_toggle = ctk.CTkButton(transport_frame, text="▶", width=36, height=28,
                                         fg_color=ACCENT_GLOW, hover_color=ACCENT_GLOW_TEAL,
                                         text_color="black", font=ctk.CTkFont(weight="bold"),
                                         command=self.on_toggle)
         self.btn_toggle.pack(side="left", padx=2)
 
-        self.btn_next = ctk.CTkButton(ctrl_frame, text="⏭", width=32, height=28,
+        self.btn_next = ctk.CTkButton(transport_frame, text="⏭", width=32, height=28,
                                       fg_color=BTN_BG, hover_color=BTN_HOVER,
                                       command=self.on_next)
         self.btn_next.pack(side="left", padx=2)
 
-        # Volume
+        # Right: volume
         self.vol_var = ctk.DoubleVar(value=self.audio.get_volume())
         self.vol_slider = ctk.CTkSlider(
-            ctrl_frame, from_=0, to=1, variable=self.vol_var,
+            self, from_=0, to=1, variable=self.vol_var,
             width=70, height=14, button_length=12,
             button_color=ACCENT_GLOW, progress_color=ACCENT_GLOW,
             command=self._on_vol_change
         )
-        self.vol_slider.pack(side="left", padx=(8, 4))
+        self.vol_slider.grid(row=2, column=2, padx=(4, 10), pady=(0, 6), sticky="e")
 
         self._dragging_seek = False
 
