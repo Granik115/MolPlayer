@@ -303,6 +303,9 @@ class MolPlayerApp(ctk.CTk):
         # Restore previous session (playlist, track, volume, mode)
         self._restore_last_session()
 
+        # Тихая автопроверка обновлений при запуске (через 10 секунд, чтобы не мешать)
+        self.after(10000, lambda: self._check_for_updates(silent=True))
+
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ---------------- UI BUILD ----------------
@@ -900,31 +903,35 @@ class MolPlayerApp(ctk.CTk):
     # ---------------- UPDATES ----------------
     def _check_for_updates(self, silent: bool = False):
         """Check GitHub Releases for a newer version and offer in-app update.
-        Handles case when no releases are published yet (404 on /latest).
+        When silent=True: only shows a dialog if a real update is available.
+        Never shows "you are on latest" or error popups in silent mode.
         """
         try:
             api_url = "https://api.github.com/repos/Granik115/MolPlayer/releases/latest"
-            req = urllib.request.Request(api_url, headers={"User-Agent": "MolPlayer-Updater/0.3"})
+            req = urllib.request.Request(api_url, headers={"User-Agent": "MolPlayer-Updater/0.5"})
 
             try:
                 with urllib.request.urlopen(req, timeout=12) as resp:
                     data = _json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as http_err:
                 if http_err.code == 404:
-                    # No releases published yet on GitHub
+                    # No releases yet — silently ignore in silent mode
                     if not silent:
                         messagebox.showinfo(
                             "Обновления",
                             "На GitHub пока нет опубликованных релизов.\n\n"
                             "Чтобы авто-обновления заработали, создай хотя бы один Release "
-                            "и загрузи в него MolPlayer-portable.zip (или любой .zip)."
+                            "и загрузи в него MolPlayer-portable.zip."
                         )
                     return
-                raise
+                # Other HTTP errors — silent in silent mode
+                if not silent:
+                    messagebox.showerror("Ошибка обновления", f"Не удалось связаться с GitHub: {http_err}")
+                return
 
             latest_tag = data.get("tag_name", "v0.0.0")
 
-            # Find best asset: prefer "portable", fallback to any .zip
+            # Find best asset
             asset_url = None
             assets = data.get("assets", [])
             for asset in assets:
@@ -940,7 +947,7 @@ class MolPlayerApp(ctk.CTk):
 
             if not asset_url:
                 if not silent:
-                    messagebox.showinfo("Обновления", "В релизе не найдено подходящего архива для обновления.")
+                    messagebox.showinfo("Обновления", "В последнем релизе не найдено подходящего архива.")
                 return
 
             def ver_tuple(v: str):
@@ -950,20 +957,26 @@ class MolPlayerApp(ctk.CTk):
                 except Exception:
                     return (0, 0, 0)
 
-            if ver_tuple(latest_tag) <= ver_tuple(APP_VERSION):
+            current_ver = ver_tuple(APP_VERSION)
+            latest_ver = ver_tuple(latest_tag)
+
+            if latest_ver <= current_ver:
+                # No newer version — stay completely silent when in silent mode
                 if not silent:
                     messagebox.showinfo("Обновления", f"У вас уже последняя версия ({APP_VERSION}).")
                 return
 
+            # There is a real update — even in silent mode we can show the offer
             if messagebox.askyesno(
                 "Доступно обновление",
-                f"Доступна новая версия {latest_tag}.\n\n"
+                f"Доступна новая версия {latest_tag} (у вас {APP_VERSION}).\n\n"
                 "Загрузить и установить обновление сейчас?\n"
                 "Приложение автоматически перезапустится после обновления."
             ):
                 self._perform_self_update(asset_url, latest_tag)
 
         except Exception as e:
+            # In silent mode we never bother the user with errors
             if not silent:
                 messagebox.showerror("Ошибка обновления", f"Не удалось проверить обновления:\n{e}")
 
