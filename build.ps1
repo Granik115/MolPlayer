@@ -38,16 +38,21 @@ if (Test-Path "dist/MolPlayer/MolPlayer.exe") {
     Copy-Item "README.md" "dist/MolPlayer/README.txt" -Force -ErrorAction SilentlyContinue
 
     @"
-MolPlayer - Portable version
+MolPlayer - Portable version (v0.5+)
 
-1. Просто запусти MolPlayer.exe (или MolPlayer.bat)
+1. Запусти MolPlayer.exe или MolPlayer.bat
 2. Ничего устанавливать не нужно.
 
-Если Windows Defender / антивирус ругается:
-- Нажми "Подробнее" → "Выполнить в любом случае"
-- Или добавь эту папку в исключения Windows Defender
+Антивирус (Windows Defender и др.) часто ругается на PyInstaller-приложения — это ложное срабатывание.
 
-Подробности — в README.txt
+Что делать:
+- Нажми "Подробнее" → "Выполнить в любом случае"
+- Добавь папку с MolPlayer в исключения Windows Defender (рекомендуется)
+- По возможности используй установщик (MolPlayer-*-setup.exe) — он иногда проходит проверки лучше
+
+Мы используем --onedir + --noupx + версию в метаданных — это лучшие бесплатные меры.
+
+Подробности и хэши — в README.txt
 "@ | Out-File -Encoding UTF8 "dist/MolPlayer/HOW_TO_RUN.txt"
 
     # Convenient launcher (double-click friendly)
@@ -58,7 +63,7 @@ start "" MolPlayer.exe
 "@ | Out-File -Encoding ASCII "dist/MolPlayer/MolPlayer.bat"
 
     # Create a clean zip for easy transfer between computers
-    $version = "0.5"   # bump manually when releasing (match APP_VERSION in constants)
+    $version = "0.6"   # bump manually when releasing (match APP_VERSION in constants)
     $zipName = "MolPlayer-v$version-portable.zip"
     $zipPath = "releases\$zipName"
 
