@@ -270,8 +270,6 @@ class MolPlayerApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title(f"{APP_NAME} — {APP_VERSION}")
-        self.geometry("1100x680")
-        self.minsize(900, 560)
 
         # Slight transparency so desktop / other windows bleed through (Win10/11)
         # Adjust 0.90 - 0.96 for taste. Makes the sci-fi machine "float".
@@ -280,8 +278,21 @@ class MolPlayerApp(ctk.CTk):
         except Exception:
             pass  # some platforms may not support
 
-        # State
+        # State - create manager early to restore window position before showing
         self.manager = PlaylistManager()
+        state = self.manager.load_app_state()
+        window_geometry = state.get("window_geometry")
+        if window_geometry:
+            try:
+                self.geometry(window_geometry)
+            except Exception:
+                self.geometry("1100x680")
+        else:
+            self.geometry("1100x680")
+
+        self.minsize(900, 560)
+
+        # State objects
         self.audio = AudioEngine()
         self.audio.set_end_callback(self._on_track_ended)
 
@@ -301,6 +312,7 @@ class MolPlayerApp(ctk.CTk):
         self._start_ui_poller()
 
         # Restore previous session (playlist, track, volume, mode)
+        # Note: geometry already applied above
         self._restore_last_session()
 
         # Тихая автопроверка обновлений при запуске (через 10 секунд, чтобы не мешать)
@@ -832,14 +844,16 @@ class MolPlayerApp(ctk.CTk):
             except Exception:
                 pass
 
-        # Persist session so next launch restores playlist, track, volume and mode
+        # Persist session so next launch restores playlist, track, volume, mode and window position
         try:
             last_track_path = self.current_track.path if self.current_track else None
+            geometry = self.geometry()
             self.manager.save_app_state(
                 last_playlist_name=self.current_playlist_name,
                 last_track_path=last_track_path,
                 volume=self.audio.get_volume(),
                 play_mode=self._play_mode,
+                window_geometry=geometry,
             )
         except Exception:
             pass

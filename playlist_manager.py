@@ -259,12 +259,14 @@ class PlaylistManager:
     def save_app_state(self, last_playlist_name: Optional[str] = None,
                        last_track_path: Optional[str] = None,
                        volume: float = 0.7,
-                       play_mode: Optional[str] = None):
+                       play_mode: Optional[str] = None,
+                       window_geometry: Optional[str] = None):
         data = {
             "last_playlist_name": last_playlist_name,
             "last_track_path": last_track_path,
             "volume": max(0.0, min(1.0, volume)),
             "play_mode": play_mode,  # "sequential" or "random"
+            "window_geometry": window_geometry,
         }
         try:
             state_file = get_app_data_dir() / "state.json"
