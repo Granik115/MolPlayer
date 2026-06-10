@@ -31,7 +31,7 @@ from constants import (
     BG_DARK, BG_SIDEBAR, BG_PANEL, BG_TRACK, BG_TRACK_HOVER, BG_TRACK_SELECTED,
     BG_OVERLAY,
     ACCENT_BLUE, ACCENT_BLUE_HOVER, ACCENT_CYAN, ACCENT_CYAN_HOVER,
-    ACCENT_GLOW, ACCENT_GLOW_TEAL, DEPTH_BLUE, BTN_PRIMARY, BTN_PRIMARY_HOVER,
+    ACCENT_FRAME, ACCENT_GLOW, ACCENT_GLOW_TEAL, DEPTH_BLUE, BTN_PRIMARY, BTN_PRIMARY_HOVER,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     PROGRESS_BG, PROGRESS_FILL_BLUE, PROGRESS_FILL_CYAN,
     BTN_BG, BTN_HOVER, BORDER,
@@ -616,6 +616,8 @@ class MolPlayerApp(ctk.CTk):
         if self.manager.remove_folder(self.current_playlist_name, folder):
             self._refresh_tracks_list()
             self._refresh_source_folders()
+            pl = self.manager.get_current()
+            self.play_order = list(range(len(pl.tracks))) if pl else []
             # If current track was from the removed folder, clear it
             if self.current_track and str(Path(self.current_track.path).resolve()).startswith(str(Path(folder).resolve())):
                 self._stop_playback()
