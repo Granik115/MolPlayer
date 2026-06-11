@@ -208,8 +208,8 @@ class NowPlayingPanel(ctk.CTkFrame):
         self.btn_prev.pack(side="left", padx=2)
 
         self.btn_toggle = ctk.CTkButton(transport_frame, text="▶", width=36, height=28,
-                                        fg_color=ACCENT_GLOW, hover_color=BTN_HOVER,
-                                        text_color="black", font=ctk.CTkFont(weight="bold"),
+                                        fg_color=BTN_BG, hover_color=BTN_HOVER,
+                                        text_color=ACCENT_GLOW, font=ctk.CTkFont(weight="bold"),
                                         command=self.on_toggle)
         self.btn_toggle.pack(side="left", padx=2)
 
@@ -247,7 +247,7 @@ class NowPlayingPanel(ctk.CTkFrame):
             self.lbl_title.configure(text="Нет воспроизведения")
             self.progress_var.set(0)
             self.lbl_time.configure(text="0:00 / 0:00")
-            self.btn_toggle.configure(text="▶", fg_color=ACCENT_CYAN, hover_color=BTN_HOVER)
+            self.btn_toggle.configure(text="▶", text_color=TEXT_MUTED)
             return
 
         title = track.display_name()
@@ -263,11 +263,11 @@ class NowPlayingPanel(ctk.CTkFrame):
         self.lbl_time.configure(text=f"{format_time(pos)} / {format_time(length)}")
 
         if is_playing:
-            self.btn_toggle.configure(text="⏸", fg_color=DEPTH_BLUE, hover_color=BTN_HOVER)
+            self.btn_toggle.configure(text="⏸", text_color="#ff6b6b")  # red-ish to indicate "stop"
         elif is_paused:
-            self.btn_toggle.configure(text="▶", fg_color=ACCENT_GLOW, hover_color=BTN_HOVER)
+            self.btn_toggle.configure(text="▶", text_color=ACCENT_GLOW)
         else:
-            self.btn_toggle.configure(text="▶", fg_color=ACCENT_GLOW, hover_color=BTN_HOVER)
+            self.btn_toggle.configure(text="▶", text_color=ACCENT_GLOW)
 
     def set_dragging(self, d: bool):
         self._dragging_seek = d
