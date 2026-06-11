@@ -208,7 +208,7 @@ class NowPlayingPanel(ctk.CTkFrame):
         self.btn_prev.pack(side="left", padx=2)
 
         self.btn_toggle = ctk.CTkButton(transport_frame, text="▶", width=36, height=28,
-                                        fg_color=ACCENT_GLOW, hover_color=ACCENT_GLOW_TEAL,
+                                        fg_color=ACCENT_GLOW, hover_color=BTN_HOVER,
                                         text_color="black", font=ctk.CTkFont(weight="bold"),
                                         command=self.on_toggle)
         self.btn_toggle.pack(side="left", padx=2)
@@ -222,7 +222,7 @@ class NowPlayingPanel(ctk.CTkFrame):
         self.vol_var = ctk.DoubleVar(value=self.audio.get_volume())
         self.vol_slider = ctk.CTkSlider(
             self, from_=0, to=1, variable=self.vol_var,
-            width=70, height=14, button_length=12,
+            width=150, height=20, button_length=16,
             button_color=ACCENT_GLOW, progress_color=ACCENT_GLOW,
             command=self._on_vol_change
         )
@@ -247,7 +247,7 @@ class NowPlayingPanel(ctk.CTkFrame):
             self.lbl_title.configure(text="Нет воспроизведения")
             self.progress_var.set(0)
             self.lbl_time.configure(text="0:00 / 0:00")
-            self.btn_toggle.configure(text="▶", fg_color=ACCENT_CYAN)
+            self.btn_toggle.configure(text="▶", fg_color=ACCENT_CYAN, hover_color=BTN_HOVER)
             return
 
         title = track.display_name()
@@ -263,11 +263,11 @@ class NowPlayingPanel(ctk.CTkFrame):
         self.lbl_time.configure(text=f"{format_time(pos)} / {format_time(length)}")
 
         if is_playing:
-            self.btn_toggle.configure(text="⏸", fg_color=DEPTH_BLUE)  # deep blue for "playing" state
+            self.btn_toggle.configure(text="⏸", fg_color=DEPTH_BLUE, hover_color=BTN_HOVER)
         elif is_paused:
-            self.btn_toggle.configure(text="▶", fg_color=ACCENT_GLOW)
+            self.btn_toggle.configure(text="▶", fg_color=ACCENT_GLOW, hover_color=BTN_HOVER)
         else:
-            self.btn_toggle.configure(text="▶", fg_color=ACCENT_GLOW)
+            self.btn_toggle.configure(text="▶", fg_color=ACCENT_GLOW, hover_color=BTN_HOVER)
 
     def set_dragging(self, d: bool):
         self._dragging_seek = d
@@ -324,6 +324,10 @@ class MolPlayerApp(ctk.CTk):
 
         # Тихая автопроверка обновлений при запуске (через 10 секунд, чтобы не мешать)
         self.after(10000, lambda: self._check_for_updates(silent=True))
+
+        # Global media keys support (like Spotify, YouTube, VK): play/pause, next, prev
+        # Works even when app is not focused, using system media keys (fn+f5 etc. on some keyboards map to these)
+        self._start_media_key_listener()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -866,6 +870,14 @@ class MolPlayerApp(ctk.CTk):
 
         self.audio.cleanup()
         self.manager.save()
+
+        # Stop media key listener
+        if hasattr(self, '_media_listener') and self._media_listener:
+            try:
+                self._media_listener.stop()
+            except Exception:
+                pass
+
         self.destroy()
 
     # Keyboard shortcuts (bound to root)
@@ -876,6 +888,33 @@ class MolPlayerApp(ctk.CTk):
         self.bind("<Right>", lambda e: self._seek_relative(5))
         self.bind("<Control-Left>", lambda e: self._prev_track())
         self.bind("<Control-Right>", lambda e: self._next_track())
+
+    def _start_media_key_listener(self):
+        """Start global listener for media keys (play/pause, next track, previous track).
+        This allows controlling the player with keyboard media buttons (fn+f5/f6/f7 or dedicated keys)
+        even when the app window is not focused, similar to Spotify/YouTube/VK.
+        """
+        try:
+            from pynput import keyboard
+
+            def on_press(key):
+                try:
+                    if key == keyboard.Key.media_play_pause:
+                        self.after(0, self._toggle_play)
+                    elif key == keyboard.Key.media_next:
+                        self.after(0, self._next_track)
+                    elif key == keyboard.Key.media_previous:
+                        self.after(0, self._prev_track)
+                    # Optional: volume keys could adjust self.audio.set_volume, but not requested
+                except Exception:
+                    pass  # ignore if app is closing etc.
+
+            self._media_listener = keyboard.Listener(on_press=on_press)
+            self._media_listener.start()
+        except Exception as e:
+            # pynput not installed or hook failed (e.g. permissions) - app still works without global keys
+            print(f"[MediaKeys] Could not start global media key listener: {e}")
+            self._media_listener = None
 
     def _seek_relative(self, delta: float):
         if self.current_track:
