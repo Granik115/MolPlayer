@@ -222,7 +222,7 @@ class NowPlayingPanel(ctk.CTkFrame):
         self.vol_var = ctk.DoubleVar(value=self.audio.get_volume())
         self.vol_slider = ctk.CTkSlider(
             self, from_=0, to=1, variable=self.vol_var,
-            width=150, height=20, button_length=16,
+            width=150, height=14, button_length=12,
             button_color=ACCENT_GLOW, progress_color=ACCENT_GLOW,
             command=self._on_vol_change
         )
