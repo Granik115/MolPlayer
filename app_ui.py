@@ -325,8 +325,11 @@ class MolPlayerApp(ctk.CTk):
         self._refresh_playlists_list()
         self._start_ui_poller()
 
-        # Position the sash after initial layout (place-based)
-        self.after(30, self._place_sash)
+        # Force initial sash placement (multiple calls + idletasks to ensure it appears)
+        self.update_idletasks()
+        self.after(20, self._place_sash)
+        self.after(100, self._place_sash)
+        self.after(300, self._place_sash)
 
         # Restore previous session (playlist, track, volume, mode)
         # Note: geometry already applied above
@@ -433,6 +436,7 @@ class MolPlayerApp(ctk.CTk):
         # Action buttons row
         actions = ctk.CTkFrame(self.top_bar, fg_color="transparent")
         actions.grid(row=0, column=1, padx=12, pady=6, sticky="e")
+        self.top_actions_frame = actions  # used for settings panel width alignment (match buttons group)
 
         # Top action buttons - Gear (settings) | Play, Random, and Sources
         button_style = {
@@ -995,17 +999,23 @@ class MolPlayerApp(ctk.CTk):
 
     # ---------------- SASH (resizable divider - place based for smooth non-jerky drag, no artifacts) ----------------
     def _place_sash(self):
-        """Position the sash at the right edge of the sidebar. Called after layout and on resizes."""
+        """Position the sash at the right edge of the sidebar. Called after layout and on resizes.
+        Uses sidebar height for reliability (avoids status bar)."""
         if not hasattr(self, "sash") or self.sash is None:
             return
         try:
             self.update_idletasks()
-            sx = max(0, self.sidebar.winfo_width())
-            # Cover the main content area height (leave thin status visible)
-            sh = max(100, self.winfo_height() - 24)
+            sx = max(0, int(self.sidebar.winfo_width()))
+            sh = max(200, int(self.sidebar.winfo_height()))
             self.sash.place(x=sx, y=0, width=5, height=sh)
+            self.sash.lift()
         except Exception:
-            pass
+            # Last resort: make it visible with safe values
+            try:
+                self.sash.place(x=260, y=0, width=5, height=500)
+                self.sash.lift()
+            except Exception:
+                pass
 
     def _on_sash_press(self, event):
         self._sash_dragging = True
@@ -1129,32 +1139,65 @@ class MolPlayerApp(ctk.CTk):
         filler = ctk.CTkFrame(self.settings_frame, fg_color="transparent")
         filler.pack(fill="both", expand=True)
 
+        # Explicit bottom accent line so the light-blue border fully encloses the entire settings panel
+        # (top + left + right + bottom). Without this the bottom border could appear missing visually.
+        ctk.CTkFrame(self.settings_frame, height=1, fg_color=ACCENT_FRAME).pack(fill="x", padx=0, pady=0)
+
         # NO "Закрыть" button — toggle only via gear (as requested)
 
     def _position_settings_panel(self):
-        """Place the settings panel on the RIGHT (over tracks list), height exactly between top actions bar
-        and the now-playing subwindow. Must open immediately on gear click."""
+        """Place the settings panel on the RIGHT (over tracks list).
+        Width: matches the top action buttons group width (gear+play+random+sources) or left edge of gear.
+        Height: from below top bar all the way down to (touching) the now-playing bottom panel.
+        Opens immediately thanks to repeated idletasks."""
         if self.settings_frame is None:
             return
         try:
-            # Multiple updates to ensure winfo_ values are fresh (fixes "doesn't open until resize" bug)
-            self.update_idletasks()
-            self.tracks_container.update_idletasks()
-            self.now_panel.update_idletasks()
+            # Multiple forced layouts so sizes are accurate on first click
+            for _ in range(3):
+                self.update_idletasks()
+                self.tracks_container.update_idletasks()
+                self.now_panel.update_idletasks()
+                if hasattr(self, 'top_actions_frame'):
+                    self.top_actions_frame.update_idletasks()
 
             c_w = self.tracks_container.winfo_width()
-            c_h = self.tracks_container.winfo_height()
-            now_h = self.now_panel.winfo_height() if hasattr(self.now_panel, "winfo_height") else 90
-
-            # Height: from just below top_bar (i.e. top of tracks_container) down to top of now_panel
-            settings_h = max(120, c_h - max(20, now_h))
-
-            # Full width of the tracks area (right side), y=0 inside container
-            self.settings_frame.place(in_=self.tracks_container, x=0, y=0, width=c_w, height=settings_h)
-        except Exception:
-            # Robust fallback: cover most of tracks area
+            now_y = 0
             try:
-                self.settings_frame.place(in_=self.tracks_container, x=0, y=0, relwidth=1.0, relheight=0.75)
+                now_y = int(self.now_panel.winfo_y())
+            except Exception:
+                now_y = self.tracks_container.winfo_height() - 90
+
+            # Height must reach / touch the lower now-playing panel
+            settings_h = max(140, now_y + 3)  # +3 to ensure the bottom border visually touches the panel
+
+            # Width: sum / span of the top buttons (as user requested "суммарно как все кнопки вверху")
+            # Positioned so left edge aligns with left of the leftmost (gear)
+            settings_w = 420  # safe fallback
+            try:
+                if hasattr(self, 'top_actions_frame') and self.top_actions_frame:
+                    actions_w = max(200, int(self.top_actions_frame.winfo_width()))
+                    settings_w = max(280, actions_w)
+                else:
+                    # fallback: sum button widths + paddings (gear is leftmost)
+                    gw = int(getattr(self, 'btn_gear', None).winfo_width()) if getattr(self, 'btn_gear', None) else 34
+                    pw = int(getattr(self, 'btn_play', None).winfo_width()) if getattr(self, 'btn_play', None) else 140
+                    rw = int(getattr(self, 'btn_random', None).winfo_width()) if getattr(self, 'btn_random', None) else 140
+                    sw = int(getattr(self, 'btn_sources', None).winfo_width()) if getattr(self, 'btn_sources', None) else 170
+                    settings_w = max(280, gw + pw + rw + sw + 20)
+            except Exception:
+                pass
+
+            # Right-align under the buttons group so left of panel ~ left of gear
+            settings_x = max(0, c_w - settings_w)
+
+            self.settings_frame.place(in_=self.tracks_container, x=settings_x, y=0, width=settings_w, height=settings_h)
+            self.settings_frame.lift()
+        except Exception:
+            # Last resort full-ish right panel
+            try:
+                self.settings_frame.place(in_=self.tracks_container, x=0, y=0, relwidth=0.6, relheight=0.8)
+                self.settings_frame.lift()
             except Exception:
                 pass
 
@@ -1207,14 +1250,13 @@ class MolPlayerApp(ctk.CTk):
     def _on_window_configure(self, event=None):
         if event is None or event.widget is not self:
             return
-        if self._sash_dragging:
-            return
-        # Reposition sash to follow sidebar (e.g. after window resize)
-        try:
-            self._place_sash()
-        except Exception:
-            pass
-        # If settings open (now on right), re-calc its height to match current now_panel / container
+        # Always try to keep sash positioned (unless actively dragging)
+        if not getattr(self, "_sash_dragging", False):
+            try:
+                self._place_sash()
+            except Exception:
+                pass
+        # If settings open (now on right), re-calc its size/position
         if getattr(self, "_settings_open", False) and self.settings_frame and self.settings_frame.winfo_exists():
             try:
                 self._position_settings_panel()
