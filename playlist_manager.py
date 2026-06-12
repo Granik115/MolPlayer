@@ -305,7 +305,7 @@ class PlaylistManager:
             "play_mode": play_mode,  # "sequential" or "random"
             "window_geometry": window_geometry,
             "sidebar_width": int(sidebar_width) if sidebar_width is not None else 260,
-            "opacity": max(0.3, min(1.0, float(opacity))) if opacity is not None else 1.0,
+            "opacity": max(0.1, min(1.0, float(opacity))) if opacity is not None else 1.0,
             "autostart": bool(autostart) if autostart is not None else False,
         }
         try:
