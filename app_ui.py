@@ -416,6 +416,15 @@ class MolPlayerApp(ctk.CTk):
         )
         self.btn_check_updates.pack(side="right")
 
+        # Rollback button next to updates (small icon for previous version)
+        self.btn_rollback = ctk.CTkButton(
+            ver_frame, text="↩", width=26, height=24,
+            fg_color=BTN_BG, hover_color=BTN_HOVER,
+            text_color=TEXT_PRIMARY, font=ctk.CTkFont(size=11),
+            command=self._show_rollback_versions
+        )
+        self.btn_rollback.pack(side="right", padx=(4, 0))
+
         # RIGHT: Main content
         self.content = ctk.CTkFrame(self, fg_color=BG_OVERLAY, corner_radius=0)
         self.content.grid(row=0, column=1, sticky="nsew")
@@ -1411,15 +1420,8 @@ class MolPlayerApp(ctk.CTk):
                     messagebox.showinfo("Обновления", "В последнем релизе не найдено подходящего архива.")
                 return
 
-            def ver_tuple(v: str):
-                v = v.lstrip("vV")
-                try:
-                    return tuple(int(x) for x in v.split(".")[:3])
-                except Exception:
-                    return (0, 0, 0)
-
-            current_ver = ver_tuple(APP_VERSION)
-            latest_ver = ver_tuple(latest_tag)
+            current_ver = self._ver_tuple(APP_VERSION)
+            latest_ver = self._ver_tuple(latest_tag)
 
             if latest_ver <= current_ver:
                 # No newer version — stay completely silent when in silent mode
@@ -1510,6 +1512,122 @@ del "%~f0" >nul 2>&1
         except Exception:
             subprocess.Popen(bat_path, shell=True)
         self.destroy()
+
+    # ---------------- ROLLBACK TO PREVIOUS VERSION ----------------
+    def _show_rollback_versions(self):
+        """Show list of previous versions available on GitHub (portable zips) for rollback.
+        Placed next to the "Обновления" button."""
+        # Toggle: close if already open
+        if hasattr(self, '_rollback_popup') and self._rollback_popup and self._rollback_popup.winfo_exists():
+            self._rollback_popup.destroy()
+            self._rollback_popup = None
+            return
+
+        try:
+            api_url = "https://api.github.com/repos/Granik115/MolPlayer/releases"
+            req = urllib.request.Request(api_url, headers={"User-Agent": "MolPlayer-Updater/1.0"})
+
+            try:
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    releases = _json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as http_err:
+                if http_err.code == 404:
+                    messagebox.showinfo("Откат версии", "На GitHub пока нет опубликованных релизов.")
+                    return
+                messagebox.showerror("Ошибка отката", f"Не удалось связаться с GitHub: {http_err}")
+                return
+
+            current_ver = self._ver_tuple(APP_VERSION)
+            candidates = []
+            for rel in releases:
+                tag = rel.get("tag_name", "")
+                if not tag:
+                    continue
+                tver = self._ver_tuple(tag)
+                if tver >= current_ver:
+                    continue  # only older versions for rollback
+                asset_url = None
+                for asset in rel.get("assets", []):
+                    name = asset.get("name", "")
+                    if "portable" in name.lower() and name.endswith(".zip"):
+                        asset_url = asset.get("browser_download_url")
+                        break
+                if asset_url:
+                    candidates.append((tag, asset_url))
+
+            if not candidates:
+                messagebox.showinfo("Откат версии", "Нет доступных предыдущих версий с portable-архивом.")
+                return
+
+            # Sort by version descending (newest previous first)
+            candidates.sort(key=lambda c: self._ver_tuple(c[0]), reverse=True)
+
+            # Popup similar to sources menu
+            popup = ctk.CTkToplevel(self)
+            popup.overrideredirect(True)
+            popup.configure(fg_color=BG_PANEL)
+            self._rollback_popup = popup
+
+            main_frame = ctk.CTkFrame(popup, fg_color=BG_PANEL)
+            main_frame.pack(fill="both", expand=True, padx=4, pady=4)
+
+            ctk.CTkLabel(main_frame, text="Откат на предыдущую версию",
+                         text_color=TEXT_PRIMARY, font=ctk.CTkFont(size=12, weight="bold")).pack(pady=(0, 4))
+
+            for tag, url in candidates[:10]:  # limit list
+                btn = ctk.CTkButton(
+                    main_frame, text=f"↩ {tag}",
+                    fg_color=BTN_BG, hover_color=BTN_HOVER,
+                    text_color=TEXT_PRIMARY,
+                    command=lambda u=url, t=tag, p=popup: self._do_rollback(u, t, p)
+                )
+                btn.pack(fill="x", pady=1)
+
+            ctk.CTkLabel(main_frame, text="Выберите версию для отката",
+                         text_color=TEXT_MUTED, font=ctk.CTkFont(size=10)).pack(pady=(4, 0))
+
+            # Position near the rollback / updates buttons (bottom of sidebar)
+            popup.update_idletasks()
+            try:
+                ref_btn = getattr(self, 'btn_rollback', self.btn_check_updates)
+                req_h = main_frame.winfo_reqheight() + 8
+                popup_w = 210
+                popup_x = ref_btn.winfo_rootx() - 60
+                popup_y = ref_btn.winfo_rooty() + ref_btn.winfo_height() + 2
+                popup.geometry(f"{popup_w}x{req_h}+{popup_x}+{popup_y}")
+            except Exception:
+                popup.geometry(f"210x{min(240, 30 + len(candidates)*26)}")
+
+        except Exception as e:
+            messagebox.showerror("Ошибка отката", f"Не удалось получить список версий:\n{e}")
+            if hasattr(self, '_rollback_popup') and self._rollback_popup:
+                try:
+                    self._rollback_popup.destroy()
+                except:
+                    pass
+            self._rollback_popup = None
+
+    def _ver_tuple(self, v: str):
+        v = v.lstrip("vV")
+        try:
+            return tuple(int(x) for x in v.split(".")[:3])
+        except Exception:
+            return (0, 0, 0)
+
+    def _do_rollback(self, asset_url: str, tag: str, popup):
+        popup.destroy()
+        self._rollback_popup = None
+
+        if not messagebox.askyesno(
+            "Подтверждение отката",
+            f"Откатиться на {tag}?\n\n"
+            "Файлы приложения будут заменены на версию из архива.\n"
+            "Приложение автоматически перезапустится."
+        ):
+            return
+
+        # Reuse the exact same self-update mechanism (works for older versions too)
+        self._perform_self_update(asset_url, tag)
 
 def main():
     # Ensure pygame mixer is happy on some systems
