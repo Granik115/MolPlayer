@@ -275,14 +275,7 @@ class MolPlayerApp(ctk.CTk):
         super().__init__()
         self.title(f"{APP_NAME} — {APP_VERSION}")
 
-        # Slight transparency so desktop / other windows bleed through (Win10/11)
-        # Adjust 0.90 - 0.96 for taste. Makes the sci-fi machine "float".
-        try:
-            self.attributes("-alpha", 0.93)
-        except Exception:
-            pass  # some platforms may not support
-
-        # State - create manager early to restore window position before showing
+        # State - create manager early to restore window position, sidebar, opacity, autostart before showing
         self.manager = PlaylistManager()
         state = self.manager.load_app_state()
         window_geometry = state.get("window_geometry")
@@ -295,6 +288,22 @@ class MolPlayerApp(ctk.CTk):
             self.geometry("1100x680")
 
         self.minsize(900, 560)
+
+        # Load persisted UI prefs (defaults per spec)
+        self._sidebar_width = max(160, min(520, int(state.get("sidebar_width", 260))))
+        self._opacity = max(0.3, min(1.0, float(state.get("opacity", 1.0))))
+        self._autostart = bool(state.get("autostart", False))
+        self._settings_open = False
+        self.settings_frame = None
+        self.btn_gear = None
+        self._sash_drag_start_x = 0
+        self._sash_drag_start_w = 0
+
+        # Apply saved opacity (default 100% fully opaque). Live controlled in settings.
+        try:
+            self.attributes("-alpha", self._opacity)
+        except Exception:
+            pass  # some platforms may not support
 
         # State objects
         self.audio = AudioEngine()
@@ -328,18 +337,31 @@ class MolPlayerApp(ctk.CTk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        # For live updating settings panel size on window resize (height + width safety)
+        self.bind("<Configure>", self._on_window_configure)
+
     # ---------------- UI BUILD ----------------
     def _build_ui(self):
         self.configure(fg_color=BG_DARK)
 
-        # Main grid: left sidebar | right content
-        self.grid_columnconfigure(1, weight=1)
+        # Main grid: left sidebar | sash | right content
+        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=0)
+        self.grid_columnconfigure(2, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # LEFT: Playlists sidebar
-        self.sidebar = ctk.CTkFrame(self, fg_color=BG_SIDEBAR, width=260, corner_radius=0)
+        # LEFT: Playlists sidebar (width from persisted or default)
+        self.sidebar = ctk.CTkFrame(self, fg_color=BG_SIDEBAR, width=self._sidebar_width, corner_radius=0)
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_propagate(False)
+
+        # SASH (draggable divider between playlists and tracks)
+        self.sash = ctk.CTkFrame(self, fg_color=BORDER, width=5, cursor="sb_h_double_arrow")
+        self.sash.grid(row=0, column=1, sticky="ns")
+        self.sash.bind("<Button-1>", self._on_sash_press)
+        self.sash.bind("<B1-Motion>", self._on_sash_drag)
+        self.sash.bind("<Enter>", lambda e: self.sash.configure(fg_color=ACCENT_GLOW))
+        self.sash.bind("<Leave>", lambda e: self.sash.configure(fg_color=BORDER))
 
         # Sidebar header
         hdr = ctk.CTkFrame(self.sidebar, fg_color="transparent")
@@ -388,9 +410,9 @@ class MolPlayerApp(ctk.CTk):
         )
         self.btn_check_updates.pack(side="right")
 
-        # RIGHT: Main content
+        # RIGHT: Main content (after sash column)
         self.content = ctk.CTkFrame(self, fg_color=BG_OVERLAY, corner_radius=0)
-        self.content.grid(row=0, column=1, sticky="nsew")
+        self.content.grid(row=0, column=2, sticky="nsew")
         self.content.grid_columnconfigure(0, weight=1)
         self.content.grid_rowconfigure(1, weight=1)  # tracks area grows
 
@@ -409,12 +431,21 @@ class MolPlayerApp(ctk.CTk):
         actions = ctk.CTkFrame(self.top_bar, fg_color="transparent")
         actions.grid(row=0, column=1, padx=12, pady=6, sticky="e")
 
-        # Top action buttons - Play, Random, and Sources (replaces Add Folder + Clear)
+        # Top action buttons - Gear (settings) | Play, Random, and Sources
         button_style = {
             "fg_color": BTN_BG,
             "hover_color": BTN_HOVER,
             "text_color": TEXT_PRIMARY,
         }
+
+        # Small gear button for settings (left of "Воспроизведение")
+        self.btn_gear = ctk.CTkButton(
+            actions, text="⚙", width=34, height=32,
+            fg_color=BTN_BG, hover_color=BTN_HOVER,
+            text_color=TEXT_PRIMARY, font=ctk.CTkFont(size=16),
+            command=self._toggle_settings
+        )
+        self.btn_gear.pack(side="left", padx=(0, 6))
 
         self.btn_play = ctk.CTkButton(
             actions, text="▶ Воспроизвести", width=140, height=32,
@@ -469,7 +500,7 @@ class MolPlayerApp(ctk.CTk):
             self, text="Готов", anchor="w", height=22,
             text_color=TEXT_MUTED, font=ctk.CTkFont(size=10)
         )
-        self.status.grid(row=1, column=0, columnspan=2, sticky="ew", padx=8)
+        self.status.grid(row=1, column=0, columnspan=3, sticky="ew", padx=8)
 
     # ---------------- PLAYLISTS LIST (left) ----------------
     def _refresh_playlists_list(self, select_name: Optional[str] = None):
@@ -851,7 +882,7 @@ class MolPlayerApp(ctk.CTk):
             except Exception:
                 pass
 
-        # Persist session so next launch restores playlist, track, volume, mode and window position
+        # Persist session so next launch restores playlist, track, volume, mode, window position, sidebar width, opacity, autostart
         try:
             last_track_path = self.current_track.path if self.current_track else None
             geometry = self.geometry()
@@ -861,6 +892,9 @@ class MolPlayerApp(ctk.CTk):
                 volume=self.audio.get_volume(),
                 play_mode=self._play_mode,
                 window_geometry=geometry,
+                sidebar_width=getattr(self, "_sidebar_width", 260),
+                opacity=getattr(self, "_opacity", 1.0),
+                autostart=getattr(self, "_autostart", False),
             )
         except Exception:
             pass
@@ -955,6 +989,204 @@ class MolPlayerApp(ctk.CTk):
                             break
 
         self._play_mode = mode
+
+    # ---------------- SASH (resizable divider) ----------------
+    def _on_sash_press(self, event):
+        self._sash_drag_start_x = event.x_root
+        try:
+            self._sash_drag_start_w = int(self.sidebar.cget("width"))
+        except Exception:
+            self._sash_drag_start_w = getattr(self, "_sidebar_width", 260)
+
+    def _on_sash_drag(self, event):
+        if not hasattr(self, "_sash_drag_start_x"):
+            return
+        delta = event.x_root - self._sash_drag_start_x
+        new_w = max(160, min(520, self._sash_drag_start_w + delta))
+        self.sidebar.configure(width=new_w)
+        self._sidebar_width = new_w
+        # If settings overlay is open, keep its right edge at the gear button's left edge
+        if getattr(self, "_settings_open", False):
+            self._update_settings_width()
+
+    # ---------------- SETTINGS (gear overlay) ----------------
+    def _toggle_settings(self):
+        if getattr(self, "_settings_open", False):
+            self._close_settings()
+        else:
+            self._open_settings()
+
+    def _open_settings(self):
+        if self.settings_frame is None:
+            self._create_settings_panel()
+        self._settings_open = True
+        self._update_settings_width_and_height()
+        try:
+            self.settings_frame.place(x=0, y=0, width=self._settings_width, height=self._settings_height)
+            self.settings_frame.lift()
+        except Exception:
+            pass
+
+    def _close_settings(self):
+        if self.settings_frame is not None:
+            try:
+                self.settings_frame.place_forget()
+            except Exception:
+                pass
+        self._settings_open = False
+
+    def _create_settings_panel(self):
+        self.settings_frame = ctk.CTkFrame(
+            self, fg_color=BG_OVERLAY, border_color=ACCENT_FRAME, border_width=1, corner_radius=0
+        )
+
+        pad = 14
+        # Title
+        ctk.CTkLabel(
+            self.settings_frame, text="Настройки",
+            text_color=TEXT_PRIMARY, font=ctk.CTkFont(size=16, weight="bold")
+        ).pack(anchor="w", padx=pad, pady=(12, 6))
+
+        # Thin accent line
+        ctk.CTkFrame(self.settings_frame, height=1, fg_color=ACCENT_FRAME).pack(fill="x", padx=pad, pady=(0, 8))
+
+        # 1) Autostart
+        self.autostart_var = ctk.BooleanVar(value=self._autostart)
+        sw = ctk.CTkSwitch(
+            self.settings_frame,
+            text="Автозапуск при включении ПК",
+            variable=self.autostart_var,
+            command=self._on_autostart_changed,
+            progress_color=ACCENT_GLOW,
+            button_color=ACCENT_GLOW,
+            text_color=TEXT_PRIMARY
+        )
+        sw.pack(anchor="w", padx=pad, pady=6)
+
+        # 2) Opacity (slider + % like volume)
+        ctk.CTkLabel(
+            self.settings_frame, text="Непрозрачность окна",
+            text_color=TEXT_SECONDARY, font=ctk.CTkFont(size=12)
+        ).pack(anchor="w", padx=pad, pady=(8, 2))
+
+        op_frame = ctk.CTkFrame(self.settings_frame, fg_color="transparent")
+        op_frame.pack(fill="x", padx=pad, pady=2)
+
+        self.opacity_var = ctk.DoubleVar(value=self._opacity)
+        self.opacity_slider = ctk.CTkSlider(
+            op_frame, from_=0.3, to=1.0, variable=self.opacity_var,
+            width=210, height=14, button_length=12,
+            button_color=ACCENT_GLOW, progress_color=ACCENT_GLOW,
+            command=self._on_opacity_slider
+        )
+        self.opacity_slider.pack(side="left", padx=(0, 8))
+
+        self.opacity_pct = ctk.CTkLabel(
+            op_frame, text=f"{int(self._opacity * 100)}%", text_color=TEXT_PRIMARY, width=48
+        )
+        self.opacity_pct.pack(side="left")
+
+        # The rest of settings space is intentionally left empty for future options
+        filler = ctk.CTkFrame(self.settings_frame, fg_color="transparent")
+        filler.pack(fill="both", expand=True)
+
+        # Close button (alternative to gear toggle)
+        close_btn = ctk.CTkButton(
+            self.settings_frame, text="Закрыть", width=120,
+            fg_color=BTN_BG, hover_color=BTN_HOVER,
+            command=self._close_settings
+        )
+        close_btn.pack(pady=(6, 10))
+
+    def _update_settings_width_and_height(self):
+        # Width: exactly up to the left edge of the gear button (per spec)
+        try:
+            self.update_idletasks()
+            gear_x = self.btn_gear.winfo_rootx() - self.winfo_rootx()
+            self._settings_width = max(200, int(gear_x))
+        except Exception:
+            self._settings_width = getattr(self, "_sidebar_width", 260) + 40
+
+        # Full height of the app window (cover sidebar area completely)
+        try:
+            h = self.winfo_height()
+            if h < 200:
+                h = 680
+            self._settings_height = h
+        except Exception:
+            self._settings_height = 640
+
+    def _update_settings_width(self):
+        # Lightweight update during sash drag (gear moves horizontally)
+        try:
+            self.update_idletasks()
+            gear_x = self.btn_gear.winfo_rootx() - self.winfo_rootx()
+            w = max(200, int(gear_x))
+            if self.settings_frame and self.settings_frame.winfo_exists():
+                self.settings_frame.place_configure(width=w)
+            self._settings_width = w
+        except Exception:
+            pass
+
+    def _on_autostart_changed(self):
+        self._autostart = bool(self.autostart_var.get())
+        self._apply_autostart()
+
+    def _on_opacity_slider(self, val: float):
+        val = max(0.3, min(1.0, float(val)))
+        self._opacity = val
+        try:
+            self.attributes("-alpha", val)
+        except Exception:
+            pass
+        if hasattr(self, "opacity_pct") and self.opacity_pct and self.opacity_pct.winfo_exists():
+            self.opacity_pct.configure(text=f"{int(val * 100)}%")
+
+    def _apply_autostart(self):
+        """Create or remove Startup folder shortcut for autostart on boot (default off)."""
+        try:
+            import winshell
+            startup = winshell.startup()
+            lnk_path = os.path.join(startup, "MolPlayer.lnk")
+            if self._autostart:
+                if getattr(sys, "frozen", False):
+                    target = sys.executable
+                    with winshell.shortcut(lnk_path) as sc:
+                        sc.path = target
+                        try:
+                            sc.working_directory = os.path.dirname(target)
+                        except Exception:
+                            pass
+                        sc.description = "MolPlayer"
+                else:
+                    # When running from source (python main.py), autostart lnk would be useless or point to python.
+                    # Only effective for packaged exe. Inform via status (non-intrusive).
+                    try:
+                        self.status.configure(text="Автозапуск: доступен после сборки .exe (portable/installer)")
+                    except Exception:
+                        pass
+                    return
+            else:
+                if os.path.exists(lnk_path):
+                    try:
+                        os.remove(lnk_path)
+                    except Exception:
+                        pass
+        except Exception as e:
+            # winshell not installed or other issue (e.g. no permission) — app continues to work
+            print(f"[Autostart] {e}")
+
+    # ---------------- Window configure for settings overlay live size ----------------
+    def _on_window_configure(self, event=None):
+        if event is None or event.widget is not self:
+            return
+        if getattr(self, "_settings_open", False) and self.settings_frame and self.settings_frame.winfo_exists():
+            try:
+                # height mostly; width follows gear (sash drag uses dedicated updater)
+                h = max(300, self.winfo_height())
+                self.settings_frame.place_configure(height=h)
+            except Exception:
+                pass
 
     # ---------------- SOURCES MENU (dropdown from button) ----------------
     def _show_sources_menu(self):

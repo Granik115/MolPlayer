@@ -68,5 +68,5 @@ ACCENT_BLUE_DARK = DEPTH_BLUE
 
 # App info
 APP_NAME = "MolPlayer"
-APP_VERSION = "1.0.0"  # bump on releases
+APP_VERSION = "1.0.1"  # bump on releases
 VERSION = APP_VERSION

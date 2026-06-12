@@ -294,13 +294,19 @@ class PlaylistManager:
                        last_track_path: Optional[str] = None,
                        volume: float = 0.7,
                        play_mode: Optional[str] = None,
-                       window_geometry: Optional[str] = None):
+                       window_geometry: Optional[str] = None,
+                       sidebar_width: Optional[int] = None,
+                       opacity: Optional[float] = None,
+                       autostart: Optional[bool] = None):
         data = {
             "last_playlist_name": last_playlist_name,
             "last_track_path": last_track_path,
             "volume": max(0.0, min(1.0, volume)),
             "play_mode": play_mode,  # "sequential" or "random"
             "window_geometry": window_geometry,
+            "sidebar_width": int(sidebar_width) if sidebar_width is not None else 260,
+            "opacity": max(0.3, min(1.0, float(opacity))) if opacity is not None else 1.0,
+            "autostart": bool(autostart) if autostart is not None else False,
         }
         try:
             state_file = get_app_data_dir() / "state.json"
